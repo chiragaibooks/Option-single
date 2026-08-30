@@ -1,0 +1,8 @@
+# Dependencies for snapshot.py (single-file NSE option chain fetcher)
+pandas
+pytz
+requests
+nselib
+yfinance
+py_vollib
+pyarrow

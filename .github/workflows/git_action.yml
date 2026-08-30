@@ -1,0 +1,68 @@
+name: Fetch Option Chain Snapshot
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Trigger this from the GitHub "Actions" tab → "Run workflow" button.
+# Each run executes snapshot.py which fetches the option chain at that moment
+# and writes a NEW parquet file named by that date + time:
+#     data/option_chain_YYYYMMDD_HHMM.parquet
+# ──────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:            # ← manual "Run workflow" button
+  schedule:
+    - cron: "30 3 * * 1-5"     # 09:00 IST (UTC+5:30), weekdays only
+
+concurrency:
+  group: fetch-option-chain
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install --quiet -r requirements.txt pyarrow
+
+      # Everything (fetch → greeks → write timestamped parquet) happens here.
+      # Produces data/option_chain_YYYYMMDD_HHMM.parquet for this run's time.
+      - name: Run snapshot
+        run: python snapshot.py
+
+      - name: Commit and push the parquet
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add -f data/option_chain_*.parquet README.md
+
+          if git diff --cached --quiet; then
+            echo "Nothing new to commit"
+            exit 0
+          fi
+
+          LABEL=$(TZ=Asia/Kolkata date +"%Y-%m-%d %H:%M IST")
+          git commit -m "snapshot: ${LABEL}"
+          git pull --rebase origin main
+          git push origin main
